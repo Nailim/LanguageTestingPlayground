@@ -26,10 +26,10 @@ version:
 	@echo
 	go version
 
-clean: clean-gcc clean-clang clean-zig clean-rust clean-go
-build: build-gcc build-clang build-zig build-rust build-go
+clean: clean-gcc clean-clang clean-zig clean-rust clean-go clean-odin
+build: build-gcc build-clang build-zig build-rust build-go build-odin
 
-analyze: analyze-gcc analyze-clang analyze-zig analyze-rust analyze-go
+analyze: analyze-gcc analyze-clang analyze-zig analyze-rust analyze-go analyze-odin
 	# ls -l
 
 
@@ -153,3 +153,35 @@ clean-go:
 analyze-go:
 	@size go_hello_world go_hello_world_syscall \
 	go_stripped_hello_world go_stripped_hello_world_syscall
+
+
+
+build-odin: clean-odin compile-odin
+
+compile-odin:
+	odin build hello_world.odin -file -out:odin_hello_world
+	strip -o odin_stripped_hello_world odin_hello_world
+	
+	odin build hello_world_syscall.odin -file -out:odin_hello_world_syscall
+	strip -o odin_stripped_hello_world_syscall odin_hello_world_syscall
+	
+	odin build hello_world.odin -file -o:speed -out:odin_speed_hello_world
+	strip -o odin_stripped_speed_hello_world odin_hello_world
+	
+	odin build hello_world_syscall.odin -file -o:speed -out:odin_speed_hello_world_syscall
+	strip -o odin_stripped_speed_hello_world_syscall odin_hello_world_syscall
+	
+	odin build hello_world.odin -file -o:size -out:odin_size_hello_world
+	strip -o odin_stripped_size_hello_world odin_hello_world
+	
+	odin build hello_world_syscall.odin -file -o:size -out:odin_size_hello_world_syscall
+	strip -o odin_stripped_size_hello_world_syscall odin_hello_world_syscall
+	
+clean-odin:
+	rm -f odin_*
+
+analyze-odin:
+	@size odin_hello_world odin_hello_world_syscall \
+	odin_stripped_hello_world odin_stripped_hello_world_syscall \
+	odin_stripped_speed_hello_world odin_stripped_speed_hello_world_syscall \
+	odin_stripped_size_hello_world odin_stripped_size_hello_world_syscall
