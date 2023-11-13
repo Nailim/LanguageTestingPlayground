@@ -12,15 +12,16 @@ help:
 
 
 
-clean: clean-gcc clean-zig clean-zig-cc clean-rust
-build: build-gcc build-zig build-zig-cc build-rust
+clean: clean-gcc clean-zig clean-zig-cc clean-zig-build-cc clean-rust
+build: build-gcc build-zig build-zig-cc build-zig-build-cc build-rust
 
 
 
-analyze: analyze-gcc analyze-zig analyze-zig-cc analyze-rust
+analyze: analyze-gcc analyze-zig analyze-zig-cc analyze-zig-build-cc analyze-rust
 	ls -l gcc_nano_blink gcc_nano_blink.hex gcc_nano_blink_manual gcc_nano_blink_manual.hex \
 	zig_nano_blink_manual zig_nano_blink_manual.hex \
 	zig_cc_nano_blink zig_cc_nano_blink.hex zig_cc_nano_blink_manual zig_cc_nano_blink_manual.hex \
+	zig_build_cc_nano_blink zig_build_cc_nano_blink.hex \
 	rust_nano_blink rust_nano_blink.hex rust_nano_blink_manual rust_nano_blink_manual.hex
 
 
@@ -46,7 +47,7 @@ upload-gcc: gcc_nano_blink.hex
 	avrdude -F -V -c arduino -p ATMEGA328P -P /dev/ttyUSB0 -b 57600 -U flash:w:gcc_nano_blink.hex
 
 analyze-gcc: gcc_nano_blink
-	size gcc_nano_blink gcc_nano_blink_manual
+	size gcc_nano_blink gcc_nano_blink.hex gcc_nano_blink_manual gcc_nano_blink_manual.hex
 
 
 
@@ -71,7 +72,7 @@ upload-zig: zig_nano_blink_manual.hex
 	avrdude -F -V -c arduino -p ATMEGA328P -P /dev/ttyUSB0 -b 57600 -U flash:w:zig_nano_blink_manual.hex
 
 analyze-zig: zig_nano_blink_manual
-	size zig_nano_blink_manual
+	size zig_nano_blink_manual zig_nano_blink_manual.hex
 
 
 
@@ -99,7 +100,26 @@ upload-zig-cc: zig_cc_nano_blink_manual.hex
 	avrdude -F -V -c arduino -p ATMEGA328P -P /dev/ttyUSB0 -b 57600 -U flash:w:zig_cc_nano_blink_manual.hex
 
 analyze-zig-cc: zig_cc_nano_blink zig_cc_nano_blink_manual
-	size zig_cc_nano_blink zig_cc_nano_blink_manual
+	size zig_cc_nano_blink zig_cc_nano_blink.hex zig_cc_nano_blink_manual zig_cc_nano_blink_manual.hex
+
+
+
+build-zig-build-cc: clean-zig-build-cc compile-zig-build-cc
+
+compile-zig-build-cc: nano_blink.c nano_blink_manual.c
+	cd nano-blink-zig-cc && zig build
+	cp nano-blink-zig-cc/zig-out/zig_cc_nano_blink.elf ./zig_build_cc_nano_blink
+	cp nano-blink-zig-cc/zig-out/zig_cc_nano_blink.hex ./zig_build_cc_nano_blink.hex
+
+clean-zig-build-cc:
+	rm -f zig_build_cc_nano_blink*
+	cd nano-blink-zig-cc && rm -fr zig*
+
+upload-zig-build-cc: zig_build_cc_nano_blink.hex
+	avrdude -F -V -c arduino -p ATMEGA328P -P /dev/ttyUSB0 -b 57600 -U flash:w:zig_build_cc_nano_blink.hex
+
+analyze-zig-build-cc: zig_build_cc_nano_blink
+	size zig_build_cc_nano_blink zig_build_cc_nano_blink.hex
 
 
 
@@ -128,5 +148,5 @@ upload-rust: rust_nano_blink.hex
 	avrdude -F -V -c arduino -p ATMEGA328P -P /dev/ttyUSB0 -b 57600 -U flash:w:rust_nano_blink_manual.hex
 
 analyze-rust: rust_nano_blink
-	size rust_nano_blink rust_nano_blink_manual
+	size rust_nano_blink rust_nano_blink.hex rust_nano_blink_manual rust_nano_blink_manual.hex
 
