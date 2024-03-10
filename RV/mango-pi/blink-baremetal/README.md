@@ -1,5 +1,7 @@
 # Mango Pi baremetal blink test with xfel
 
+Referenced from [https://github.com/dwelch67/lichee-rv-samples](https://github.com/dwelch67/lichee-rv-samples).
+
 ## compile
 
 - make
