@@ -1,0 +1,33 @@
+objtype=riscv64
+
+</$objtype/mkfile
+
+all:V: main.bin main.elf
+
+# known-good raw flashable image, same as every other folder - kept so
+# this example can still be confirmed running on real hardware, not
+# just validated as a file format on the host.
+main.bin: start.$O main.$O
+	$LD $DFLAGS -s -H 1 -T 0x41000000 -E _start -o main.bin start.$O main.$O
+
+# -H 5 : ELF output (elf64() in sys/src/cmd/il/elf.c)
+# -S   : emit ELF section headers (.text/.data/.strtab) - without this,
+#        e_shoff/e_shnum are both 0 and there is no section table at
+#        all, which is almost certainly why every previous mkfile's
+#        commented-out "# ELF is questionable" main.elf target looked
+#        unreliable to external tools.
+# -s   : strip the Plan9-format symbol table Plan9's own asmsym() would
+#        otherwise append - it's not ELF SHT_SYMTAB format, so external
+#        tools can't read it as symbols anyway; stripping keeps the
+#        file to just what a standard ELF reader can actually use.
+main.elf: start.$O main.$O
+	$LD $DFLAGS -s -S -H 5 -T 0x41000000 -E _start -o main.elf start.$O main.$O
+
+main.$O: main.c
+	$CC $CFLAGS main.c
+
+start.$O: start.s
+	$AS  start.s
+
+clean:V:
+	rm -f main.bin main.elf main.$O start.$O
