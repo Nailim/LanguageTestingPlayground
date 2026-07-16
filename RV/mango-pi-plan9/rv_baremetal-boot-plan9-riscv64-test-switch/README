@@ -1,0 +1,43 @@
+test-switch: switch/case dispatch correctness on objtype=riscv64
+
+WHAT IS TESTED
+--------------
+classify(int v) in main.c is a switch with 9 non-contiguous case values
+(1, 2, 3, 5, 8, 13, 21, 34, 55) and a default. Called 14 times from
+main(): once per case value (in shuffled order, not declaration order),
+plus 5 values chosen to hit "default" from different positions relative
+to the case set - below the lowest case, above the highest case, and in
+gaps between existing cases. Each call's return value is compared
+against a hand-computed expected value and the result is printed over
+UART0 as "<label> PASS" or "<label> FAIL".
+
+WHY THIS CONSTRUCT
+------------------
+Initially picked on the theory that switch might compile to an indirect
+jump table, sharing the address-materialization code that already had
+two confirmed bugs this session (optab.c's C_LECON routing, and the
+missing SB init - see the BinOutput project's memory). Reading
+sys/src/cmd/il/swt.c before building this test showed that's not how
+this compiler implements switch at all: swit2() lowers it to a binary
+search tree of plain compare-and-branch instructions (OEQ/OGT + a
+recursive bisection once there are 5 or more cases), not a jump table.
+So this test isn't exercising the address-materialization path - it's
+exercising the compare-tree codegen and label patching (patch()) across
+a function with more branch targets than anything tested so far, plus
+default-case fallback from multiple tree positions. Kept as the first
+test anyway since it's still new, non-trivial code generation with no
+prior coverage.
+
+HOW TO READ THE RESULT
+-----------------------
+Watch UART0 (same console as the other rv_baremetal-boot-plan9-riscv64-*
+examples). Each of the 14 lines should read PASS. A final line reads
+either "ALL TESTS PASSED" or "SOME TESTS FAILED (see above)". The commit
+LED is a no-terminal fallback: solid on once the test finishes means
+all 14 passed; a fast blink means at least one FAIL was printed.
+
+BUILD
+-----
+mk (produces main.out and main.bin, same convention as the other
+rv_baremetal-boot-plan9-riscv64-* folders - main.bin is the flashable
+headerless output, built with -s to strip Plan9 symbols).

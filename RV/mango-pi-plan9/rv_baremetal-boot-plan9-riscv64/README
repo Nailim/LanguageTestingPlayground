@@ -1,0 +1,57 @@
+rv_baremetal-boot-plan9-riscv64: first working Plan9 objtype=riscv64 bare-metal example, and the site of the -T base addressing bug fix
+
+WHAT THIS IS
+------------
+The first riscv64 (`jc`/`ja`/`jl`) example to blink the LED using real
+linked calls (PUT32/dummy) instead of rv_baremetal-boot-plan9-riscv's
+inlined pointer-store workaround - objtype=riscv64 doesn't hit the
+C.JAL/C.ADDIW collision that objtype=riscv (RV32) does, since RV64C has
+no C.JAL encoding to collide on. GET32 is declared here but never
+actually called from main.c - see rv_baremetal-boot-plan9-riscv64-func
+for a dedicated test that also exercises GET32's return value; this
+folder never fully proved the call/return convention on its own.
+
+BUG FOUND AND FIXED HERE
+-------------------------
+The first build of this folder hung/showed a dark LED. Hand-decoding
+the output showed `MOVW $stack+16384(SB), R2` and `MOVW $main(SB), R10`
+both resolved to addresses missing the `-T 0x41000000` link base
+entirely (R2 came out as 0x4000 instead of 0x410040A8-ish, R10 as
+0x24 instead of 0x41000024) - nowhere near the D1's DRAM, so the board
+crashed from its first few instructions.
+
+Root cause: sys/src/cmd/il/optab.c's dispatch table routed
+`AMOVW`+`C_LECON` (the operand shape for `MOVW $symbol(SB), Rd`) to
+case-type 9 in asm.c, which computes the address from `regoff()` alone
+and never adds `instoffx` (the INITTEXT/INITDAT base `aclass()` computes
+separately). The near-identical `AMOV`+`C_LECON` row already pointed at
+the correct case-type 20 (which does add `instoffx`, using PC-relative
+AUIPC+ADDI for thechar=='j'). One-line fix: routed AMOVW to 20 as well,
+matching AMOV's row. Confirmed by hand-decoding the rebuilt binary (R2
+now correctly resolves to 0x410040A8, R10 to 0x41000024) and by LED
+blink on real hardware. See the BinOutput project's memory:
+plan9-riscv64-symbol-reloc-bug for the full diagnosis.
+
+start.s's comments in this folder still read "UNVERIFIED" in a few
+places (64-bit MOVW semantics, PUT32/GET32's register convention) -
+that's the state of knowledge at the time this folder was written,
+before the fixes/confirmations above and before
+rv_baremetal-boot-plan9-riscv64-func fully proved the call convention.
+Left as-is for history; later folders carry the corrected
+understanding.
+
+STATUS
+------
+Confirmed working on real hardware (LED blinks) after the optab.c fix.
+Does not use MOVW $setSB(SB), R3 (see
+rv_baremetal-boot-plan9-riscv64-uart's README and the
+plan9-riscv-missing-setsb memory) - fine here since nothing in this
+folder references a small global/string constant, only large MMIO
+addresses and function symbols (always C_LECON regardless of size for
+functions - see that memory for the distinction).
+
+BUILD
+-----
+mk (produces main.out and main.bin; main.bin is the flashable headerless
+output, built with -s to strip Plan9 symbols). objtype=riscv64 is set
+at the top of the mkfile.

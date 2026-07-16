@@ -1,0 +1,59 @@
+test-struct: struct field access, padding, assignment, and by-value/
+by-pointer/by-return passing, on objtype=riscv64
+
+WHAT IS TESTED
+--------------
+17 checks over UART0, all against a single struct shape:
+
+    typedef struct { char tag; int value; char flag; } Item;
+
+char/int/char deliberately puts a 4-byte-aligned member between two
+1-byte members - the classic padding-prone layout.
+
+  - Field read/write on three array elements, plus a re-read of the
+    first element after writing the later ones (a wrong element stride
+    would alias elements and corrupt this).
+  - Array-of-struct stride, checked against sizeof(Item) rather than a
+    hardcoded byte count - this backend's exact alignment/padding rules
+    weren't independently confirmed before writing this test, so
+    asserting a specific number risked a spurious FAIL from a wrong
+    assumption rather than a real bug. Comparing the *measured* stride
+    against sizeof()'s own answer, and checking it's consistent between
+    both element gaps, catches a real padding/stride bug either way
+    without needing to know the "correct" number in advance.
+  - Struct assignment (b = arr[1]) copies all three fields, and
+    mutating the copy afterward does not affect the original - checks
+    this is a real field-by-field copy, not an accidental shared
+    reference.
+  - A field mutated through a struct pointer (set_flag(&arr[0], 'Q')).
+  - A struct passed BY VALUE to mutate_by_value(), which modifies its
+    parameter - the caller's copy must be unaffected, confirming this
+    is a genuine copy-in, not accidentally by-reference.
+  - A struct RETURNED BY VALUE from make_item().
+
+WHY THIS CONSTRUCT
+------------------
+Lowest-priority item on the original test plan - nothing so far pointed
+at struct layout specifically as a risk area, unlike the other five
+tests which each targeted a specific, reasoned hypothesis. Included
+anyway for completeness now that switch/divmod/funcptr/arrayidx/
+longmath have all passed cleanly. Before writing this, cgen.c and
+swt.c were checked directly: cgen.c routes any struct-typed result
+through sugen() unconditionally (line 18, before the general
+scalar path), and swt.c's align() has an explicit
+`Aarg0: /* initial passbyptr argument in arg list */` case - both
+point at a hidden-pointer convention for struct arguments/returns,
+so pass-by-value and return-by-value should be implemented, not just
+pass-by-pointer - worth confirming on hardware rather than trusting
+that reading alone.
+
+HOW TO READ THE RESULT
+-----------------------
+Same convention as the other test-* folders: watch UART0, each line
+should read PASS, final line is ALL TESTS PASSED or SOME TESTS FAILED.
+LED solid on = done, all passed; fast blink = done, at least one FAIL.
+
+BUILD
+-----
+mk (produces main.out and main.bin; main.bin is the flashable headerless
+output, built with -s to strip Plan9 symbols).

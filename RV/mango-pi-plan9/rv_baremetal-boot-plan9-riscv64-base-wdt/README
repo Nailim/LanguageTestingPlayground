@@ -1,0 +1,55 @@
+rv_baremetal-boot-plan9-riscv64-wdt: watchdog feeding ported to objtype=riscv64 - completes the working base (GPIO + UART + watchdog + real calls)
+
+WHAT THIS IS
+------------
+Port of rv_baremetal-boot-linux-wdt-clk-mode's wdt.c onto Plan9
+objtype=riscv64, alongside the already-verified gpio/uart code carried
+over unchanged from rv_baremetal-boot-plan9-riscv64-uart. First
+multi-file build in this project's Plan9 side: main.c and wdt.c are
+compiled and linked as separate objects (see mkfile).
+
+main() feeds `riscv_wdt` (the C906 core's own watchdog, already armed
+by U-Boot/SPL before this code gets control) once per LED-toggle tick -
+a deliberately conservative first test: `wdt_main_*` and
+`wdt_riscv_enable/disable` are ported and available but not called from
+the loop, so if feeding doesn't actually work the failure mode is the
+board resetting on its own on a fixed timer, which is itself the test
+result, not a hang to debug blind.
+
+PORTING NOTES (useful checklist for the next port)
+-----------------------------------------------------
+  - start.s needs `MOVW $setSB(SB), R3` before stack setup, same as
+    rv_baremetal-boot-plan9-riscv64-uart - wdt.c and main.c both
+    reference small globals/constants that need it.
+  - The one real source change from the GCC original: wdt_timeout_map's
+    C99 designated initializers (`[0] = 0x0, ...`) aren't supported by
+    ic (an ANSI/K&R-era compiler) - rewritten as a plain positional
+    array, same values in the same order.
+  - PUT32/GET32 used instead of mmio.h's volatile-pointer helpers.
+  - `unsigned long` behaves like plain 32-bit `unsigned int` in this
+    compiler (TLONG uses the same AMOVW codegen path as TINT, not
+    widened for riscv64) - only pointers (TIND) are genuinely 64-bit
+    here, so wdt_feed_at/wdt_enable_at/wdt_disable_at's `base` parameter
+    is `unsigned int`, matching PUT32/GET32's own signature, not
+    `unsigned long` like the GCC original.
+
+STATUS
+------
+Confirmed on real hardware: LED blinks, UART prints continuously, and
+the board does not reset (previously reset roughly every minute when
+riscv_wdt went unfed) - the watchdog is genuinely being kicked, not
+just compiling without error. This folder is the completed goal: a
+Plan9 riscv64 bare-metal base with working watchdog, UART, GPIO, and
+real (non-inlined) function calls. See the BinOutput project's memory:
+plan9-riscv64-wdt-uart-base.
+
+Also see rv_baremetal-boot-plan9-riscv64-test-* for a follow-on
+synthetic compiler test suite (switch, div/mod, function pointers,
+array indexing, 64-bit arithmetic, structs) built on top of this base
+to shake out any further compiler bugs - all passed.
+
+BUILD
+-----
+mk (produces main.out and main.bin from start.s + main.c + wdt.c;
+main.bin is the flashable headerless output, built with -s to strip
+Plan9 symbols). objtype=riscv64 is set at the top of the mkfile.

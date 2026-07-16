@@ -1,0 +1,54 @@
+test-divmod: signed/unsigned division and modulo on objtype=riscv64
+
+WHAT IS TESTED
+--------------
+28 checks over UART0, each comparing a division or modulo result against
+a hand-computed expected value:
+
+  - 7 signed div/mod pairs covering every sign combination (positive/
+    positive, negative/positive, positive/negative, negative/negative),
+    a small-divided-by-large case, and a truncation-toward-zero case
+    (-1/2). C truncates toward zero, which is also what RISC-V's DIV/REM
+    instructions do directly, so no extra adjustment code should be
+    needed in the generated code.
+  - 4 unsigned div/mod pairs using operands that look negative if
+    misinterpreted as signed (0xFFFFFFF0u, 0x80000000u, 0xFFFFFFFFu) -
+    these would produce completely different (wrong) results if the
+    compiler picked signed DIV/REM instead of unsigned DIVU/REMU.
+  - 1 pair testing INT_MIN/-1: undefined behaviour in ISO C, but
+    well-defined at the RISC-V ISA level (the M extension specifies DIV
+    returns the dividend and REM returns 0 for this overflow case, no
+    trap). Worth checking a custom core (T-Head C906) actually follows
+    the spec here rather than some other behaviour.
+  - 2 pairs testing division by zero: RISC-V's M extension defines this
+    (DIV by 0 -> -1, DIVU by 0 -> all-ones, REM/REMU by 0 -> dividend
+    unchanged) instead of trapping, unlike most other ISAs.
+
+All operands are passed through val()/uval() - trivial identity
+functions - so every division/modulo is on a value only known after a
+real function return, not a compile-time constant the compiler could
+fold away without ever emitting a DIV/DIVU/DIVW/DIVUW/REM/REMU/REMW/
+REMUW instruction.
+
+WHY THIS CONSTRUCT
+------------------
+RISC-V has separate 64-bit (DIV/DIVU/REM/REMU) and word (DIVW/DIVUW/
+REMW/REMUW, which sign-extend a 32-bit result) instruction forms. Before
+writing this test, sys/src/cmd/ic/txt.c's gopcode() was read directly:
+it picks the W-suffixed 32-bit form whenever thechar=='j' (riscv64) and
+the result type isn't a pointer or vlong (the `tword` flag), which is
+the correct selection for plain int/unsigned int - so this looks right
+by source review. The point of this test is confirming that on actual
+(and unusual - T-Head's C906 core) silicon, not just by reading the
+generator source.
+
+HOW TO READ THE RESULT
+-----------------------
+Same convention as test-switch: watch UART0, each line should read
+PASS, final line is ALL TESTS PASSED or SOME TESTS FAILED. LED solid on
+= done, all passed; fast blink = done, at least one FAIL.
+
+BUILD
+-----
+mk (produces main.out and main.bin; main.bin is the flashable headerless
+output, built with -s to strip Plan9 symbols).

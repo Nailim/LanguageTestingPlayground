@@ -159,21 +159,27 @@ On connecting power there should be U-Boot and OpenSBI boot messages.
 
     Create file boot.cmd:
 
-        echo "Script from /boot"
-        fatload mmc 0:1 0x42000000 main.bin
-        go 0x42000000
+        echo "Loading main.bin ..."
+        fatload mmc 0:1 ${kernel_addr_r} main.bin
+        go ${kernel_addr_r}
 
     (in terminal)
     - $ ./smaeul-u-boot/tools/mkimage -T script -d boot.cmd boot.src
 
-    Copy to fat partition into boot folder: /boot/boot.src
+    Copy to fat partition into boot folder: /boot/boot.scr
 
 
-* Configure u-boot to run script by default (hardcoded, improve later so it is automatic)
+* Configure u-boot to boot only from mmc (speed up)
 
-    - => setenv bootcmd load mmc 0:1 0x41900000 /boot/boot.src; source 0x41900000
-    - => saveenv
-    - =>reset
+In u-boot pres any key to stop auto booting, then type these commands:
+
+    => print_env boot_targets # prints: boot_targets=usb mmc0 dhcp ...
+    => setenv boot_targets mmc0
+    => print_env boot_targets
+    => printenv preboot # prints: preboot=usb start
+    => setenv preboot
+    => printenv preboot
+    => saveenv
 
 # Links
 

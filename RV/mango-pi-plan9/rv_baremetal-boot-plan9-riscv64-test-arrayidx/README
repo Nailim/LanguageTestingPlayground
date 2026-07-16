@@ -1,0 +1,46 @@
+test-arrayidx: pointer arithmetic / array indexing scaled by element width, on objtype=riscv64
+
+WHAT IS TESTED
+--------------
+16 checks over UART0:
+
+  - [] indexing on a global int array (iarr[6]).
+  - Pointer arithmetic (+, ++, --) walking an int* through iarr - every
+    step needs to be scaled by sizeof(int)=4 bytes.
+  - Pointer difference (iarr+5)-iarr - C semantics say this is in
+    element units (5), not bytes (20), so a wrong scale factor shows up
+    as a wrong answer either way.
+  - Write through a pointer (*p = 999) then read back via [] on the
+    same array, to check both access paths agree.
+  - A local (stack-relative, frame/FP-addressed) char array - a
+    different addressing mode from iarr's global/data-segment
+    addressing, so this is genuinely new coverage, not a repeat.
+  - An array of pointers (char*[4]) - each element is 8 bytes (TIND
+    width) on riscv64, a third distinct scale factor from char*(1) and
+    int*(4) above, plus pointer difference on that array too.
+  - A while loop using pointer relational compare (q < end) as the
+    condition, summing the whole (by then partially mutated) array.
+
+WHY THIS CONSTRUCT
+------------------
+Every pointer-arithmetic path proven so far in this project's tests is
+char* (uart_puts's *s++), which has width 1 - a wrong scale factor
+would be silently invisible there, since scaling by anything-times-1 is
+still 1. plan9-riscv-missing-setsb (see memory) already found one real
+bug in how this backend materializes small global addresses on
+riscv64; this test checks the next-most-obvious place a similar
+width-related mistake could hide: whether *stepping* through an array
+of a wider type is correctly scaled, across three different widths (1,
+4, 8 bytes) and two different addressing modes (global/data-segment vs
+local/stack-relative).
+
+HOW TO READ THE RESULT
+-----------------------
+Same convention as the other test-* folders: watch UART0, each line
+should read PASS, final line is ALL TESTS PASSED or SOME TESTS FAILED.
+LED solid on = done, all passed; fast blink = done, at least one FAIL.
+
+BUILD
+-----
+mk (produces main.out and main.bin; main.bin is the flashable headerless
+output, built with -s to strip Plan9 symbols).

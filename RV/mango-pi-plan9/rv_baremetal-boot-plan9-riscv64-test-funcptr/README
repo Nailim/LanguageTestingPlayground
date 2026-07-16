@@ -1,0 +1,44 @@
+test-funcptr: indirect calls through a function pointer on objtype=riscv64
+
+WHAT IS TESTED
+--------------
+12 checks over UART0:
+
+  - A single function-pointer variable (p) is reassigned in turn to
+    four functions with the same signature (add10, mul2, neg, square -
+    deliberately different bodies so a misdirected call very likely
+    produces a wrong, checkable result rather than an accidental
+    match). After each assignment: one check that p compares equal to
+    the function itself (the pointer VALUE is correct), one check that
+    calling through p (p(5)) reaches the right function and returns the
+    right value (the CALL through a computed address works, not just a
+    fixed symbol).
+  - A dispatcher function, apply(fn1 f, int x), receives a function
+    pointer as an ARGUMENT and calls through it - a distinct code path
+    from the variable case: the callee has to receive the pointer value
+    itself and call through it, not the caller calling directly.
+
+WHY THIS CONSTRUCT
+------------------
+Every call verified anywhere in this project so far - PUT32/GET32/
+dummy, uart_putc from uart_puts, wdt's helpers, classify() in
+test-switch, val()/uval() in test-divmod - compiles to a direct JAL to
+a fixed, known-at-link-time symbol. An indirect call (through a
+register holding a computed address, not an immediate/PC-relative
+target baked into the instruction) is a completely different code path
+that nothing so far has exercised, and is exactly the kind of path a
+Plan9-heritage backend recently widened to a 64-bit pointer width could
+have missed (see plan9-riscv64-symbol-reloc-bug and
+plan9-riscv-missing-setsb in memory - both prior bugs were in address
+handling, just not this specific path).
+
+HOW TO READ THE RESULT
+-----------------------
+Same convention as the other test-* folders: watch UART0, each line
+should read PASS, final line is ALL TESTS PASSED or SOME TESTS FAILED.
+LED solid on = done, all passed; fast blink = done, at least one FAIL.
+
+BUILD
+-----
+mk (produces main.out and main.bin; main.bin is the flashable headerless
+output, built with -s to strip Plan9 symbols).

@@ -1,0 +1,59 @@
+rv_baremetal-boot-plan9-riscv64-uart: UART0 output ported to objtype=riscv64, and the site of the missing-SB bug fix
+
+WHAT THIS IS
+------------
+Port of rv_baremetal-boot-linux-wdt-clk-mode's uart.c (uart_putc/
+uart_puts) and gpio.c (gpio_led_init/gpio_led_set) onto Plan9
+objtype=riscv64, using the PUT32/GET32 calls proven end-to-end in
+rv_baremetal-boot-plan9-riscv64-func instead of that GCC version's
+volatile-pointer mmio.h. main() blinks the LED and prints a boot
+message plus alternating tick lines over UART0 each toggle. No CSR
+cache-tuning (start.S's csr_probe_trap dance in the GCC source) and no
+watchdog yet - see rv_baremetal-boot-plan9-riscv64-wdt for that. U-Boot
+is assumed to have already configured UART0's clock/pinmux/baud rate
+before handoff, same assumption the GCC version makes.
+
+BUG FOUND AND FIXED HERE
+-------------------------
+First build printed one garbled/unrecognised character roughly once
+per tick instead of the actual string. Disassembling the real output
+(`riscv64-linux-gnu-objdump -D -b binary -m riscv:rv64 -M numeric
+--adjust-vma=0x41000000 main.bin` - binutils happened to be available
+on this host despite the binary having no ELF header) showed uart_puts
+itself compiled correctly; the bug was one instruction earlier, at the
+call site loading the string's address in main(): `addi x8,x3,-2032`
+instead of the AUIPC+ADDI pattern used for large constants.
+
+`x3` is Plan9's REGSB - a second address-materialization mode
+(C_SECON, distinct from the C_LECON path fixed in
+rv_baremetal-boot-plan9-riscv64's optab.c bug) that this backend uses
+for small data/string constants: a single ADDI relative to a register
+that's supposed to already hold `(data segment start) + 2048`. Nothing
+in any start.s up to this point ever set R3 to that value - functions
+and large MMIO addresses always take the C_LECON path regardless of
+size, so nothing had exercised C_SECON before a small string literal
+showed up. Fix: `MOVW $setSB(SB), R3` at the top of _start, before
+anything else runs - `setSB` is a linker-synthesized symbol
+(pass.c: `xdefine("setSB", SDATA, 0L+BIG)`) whose value is defined so
+that resolving it through the (already-fixed) C_LECON path yields
+exactly the right REGSB value. No mkfile/linker-flag change needed -
+INITDAT is computed automatically and correctly regardless of any -D
+flag (span.c:164-165). See the BinOutput project's memory:
+plan9-riscv-missing-setsb for the full diagnosis.
+
+This matters beyond just this file: any future global variable small
+enough to land near the start of data hits the same C_SECON path, so
+every start.s from this folder onward includes this MOVW as standard
+boilerplate, not a one-off patch.
+
+STATUS
+------
+Confirmed working on real hardware after the fix: LED blinks in sync
+with clean UART0 output (boot message + alternating tick lines).
+
+BUILD
+-----
+mk (produces main.out and main.bin; main.bin is the flashable headerless
+output, built with -s to strip Plan9 symbols). objtype=riscv64 is set
+at the top of the mkfile. (bind.rc in this folder is unrelated toolchain
+mount plumbing, not part of this example.)

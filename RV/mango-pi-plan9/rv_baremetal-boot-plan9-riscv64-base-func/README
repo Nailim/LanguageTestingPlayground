@@ -1,0 +1,44 @@
+rv_baremetal-boot-plan9-riscv64-func: dedicated real-call / call-convention test for objtype=riscv64
+
+WHAT THIS IS
+------------
+Same LED-blink shape as rv_baremetal-boot-plan9-riscv64, but main.c is
+written specifically to exercise the full calling convention rather
+than just prove _start can reach main:
+
+  - PUT32: a call with two arguments, return value unused.
+  - dummy: a call with one argument, in a spin loop.
+  - GET32: a call with one argument AND a return value the caller
+    actually consumes - `val = GET32(PD_DATA); PUT32(PD_DATA, val ^
+    PD_LED);` computes the next LED state FROM GET32's real return
+    value, so a broken return-register convention shows up as a stuck
+    or erratic LED instead of being silently unused/optimized away.
+
+rv_baremetal-boot-plan9-riscv64's main.c declares GET32 but never calls
+it, so it never actually proved the return-value half of the
+convention - this folder exists specifically to close that gap.
+
+WHY THIS WAS SAFE TO TRUST GOING IN
+-------------------------------------
+Before building this, i.out.h was checked directly: `REGARG = 8` and
+`REGRET = 8` are compiler-level constants (not something copied
+unverified from the riscv32 callconv_test probe), so start.s's use of
+R8 for both PUT32/GET32's first argument and GET32's return value is
+correct by construction, not just by hope.
+
+RESULT
+------
+Confirmed on real hardware: LED blinks cleanly, meaning the full call/
+return/argument/return-value round trip works on objtype=riscv64. Spot-
+checked in the compiled main.bin too: the `0xEF` low-byte signature of
+`JAL R1, ...` appears at each call site, confirming these compile to
+real linked calls, not the compressed C.JAL that broke objtype=riscv on
+this hardware (see rv_baremetal-boot-plan9-riscv/README). This result
+is what unblocked porting real (non-inlined) drivers - see
+rv_baremetal-boot-plan9-riscv64-uart and -wdt.
+
+BUILD
+-----
+mk (produces main.out and main.bin; main.bin is the flashable headerless
+output, built with -s to strip Plan9 symbols). objtype=riscv64 is set
+at the top of the mkfile.

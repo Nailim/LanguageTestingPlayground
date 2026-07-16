@@ -1,0 +1,64 @@
+test-longmath: 64-bit (long long / unsigned long long) arithmetic on objtype=riscv64
+
+WHAT IS TESTED
+--------------
+9 checks over UART0, all built from small (safely-in-32-bit-range) seed
+values passed through vid()/uvid() - trivial identity functions, same
+technique as val()/uval() in test-divmod - so nothing is a compile-time
+constant and every interesting 64-bit value is constructed at runtime,
+usually two different ways, rather than written as a large literal:
+
+  - 1<<32 built via a single shift-by-32 vs via two shift-by-16 -
+    checks these agree (in case exactly-32 is special-cased somewhere).
+  - (1<<32)-1, then +1, checks the carry propagates back into the high
+    32 bits correctly.
+  - Two 64-bit relational compares (1<<32 > 0xFFFFFFFF, 1<<32 < 1)
+    picked so that a hypothetical bug comparing only the low 32 bits
+    would give the WRONG answer, not coincidentally agree with the
+    correct 64-bit answer - a comparison that happens to agree either
+    way wouldn't actually catch anything.
+  - 100000*100000 (10,000,000,000, overflows 32 bits) checked against
+    the same product built from a different factorization
+    (100000*50000*2) - a real 64-bit MUL, not two 32-bit MULs that
+    happen to look right.
+  - 1<<40 via a single shift-by-40 vs two shift-by-20 - same reasoning
+    as the 1<<32 check, and confirms the shift amount itself (40) isn't
+    masked down (RV64's SLL uses the low 6 bits of the shift amount,
+    not 5 - an easy off-by-one for code inherited from a 32-bit-only
+    backend).
+  - (1u<<63) (top bit only) compared as unsigned (> 0, true) and as
+    signed (< 0, true) - checks unsigned vs signed 64-bit comparison is
+    genuinely distinct, same idea as test-divmod's unsigned checks but
+    at 64-bit width.
+
+WHY THIS CONSTRUCT
+------------------
+Everything tested so far (test-switch, test-divmod, test-funcptr,
+test-arrayidx) operates on 32-bit int/unsigned int or pointers - the
+riscv64 backend's actual 64-bit arithmetic path (long long / vlong,
+using RISC-V's plain 64-bit ADD/SUB/MUL rather than the ADDW/SUBW/MULW
+word forms - see gopcode()'s `tword` flag in txt.c, already read while
+building test-divmod) has had no coverage at all. This backend has a
+32-bit-only heritage (every other Plan9 CPU port is 32-bit), so 64-bit
+arithmetic is exactly the kind of feature that could have been bolted
+on incompletely even though the simpler width-selection logic already
+checked out.
+
+Large 64-bit literals are avoided entirely in this test's source -
+sys/src/cmd/cc's literal lexer wasn't available to inspect in this
+session (the shared cc/ frontend directory wasn't present in the
+mounted overlay at the time), so building every test value from small,
+definitely-safe seeds via runtime shifts/multiplies sidesteps any
+question about large-literal parsing and keeps this test isolated to
+arithmetic codegen specifically.
+
+HOW TO READ THE RESULT
+-----------------------
+Same convention as the other test-* folders: watch UART0, each line
+should read PASS, final line is ALL TESTS PASSED or SOME TESTS FAILED.
+LED solid on = done, all passed; fast blink = done, at least one FAIL.
+
+BUILD
+-----
+mk (produces main.out and main.bin; main.bin is the flashable headerless
+output, built with -s to strip Plan9 symbols).

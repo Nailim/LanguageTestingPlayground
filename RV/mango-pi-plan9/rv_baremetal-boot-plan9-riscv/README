@@ -1,0 +1,45 @@
+rv_baremetal-boot-plan9-riscv: first working Plan9 objtype=riscv (RV32) bare-metal example on the Nezha D1
+
+WHAT THIS IS
+------------
+The earliest working example in this project: a minimal `_start` (stack
+setup, jump to main, no calls) plus a main.c that blinks the on-board
+LED (PD18, GPIO bank D) by writing PD_CFG2/PD_DATA directly as
+`*(unsigned int *)ADDR = val` pointer stores, not function calls.
+
+WHY NO FUNCTION CALLS
+----------------------
+This objtype (letter `i`: ic/ia/il) targets RV32. Its CALL pseudo-op
+compiles to `C.JAL`, a compressed-encoding instruction that only exists
+in RV32C. The D1's T-Head C906 core is RV64GC and is already running in
+RV64 mode by the time any bare-metal payload gets control (BROM/SPL/
+OpenSBI/U-Boot never drop it to RV32) - RV64C redefines that exact same
+16-bit encoding as `C.ADDIW`, a harmless arithmetic no-op instead of a
+jump. The call silently never happens: no trap, no crash, execution
+just falls through past the intended callee. This was diagnosed by
+hand-decoding a hung/dark-LED binary bit-by-bit (see the MangoBoot
+project's memory: plan9-riscv-cjal-collision). Until objtype=riscv64
+was usable, the only way to get real behaviour out of this objtype on
+this hardware was to avoid calls entirely - hence the direct pointer
+stores in main.c instead of PUT32/GET32/dummy calls.
+
+main.bin's other history: this was also where the linker's `-H 1`
+"headerless" output was found to embed a Plan9 symbol table right after
+the code/data instead of producing a clean flat binary (readable
+strings like `etext`, `setSB`, `stack`, `start.s` visible via a plain
+hex dump) - fixed by adding `-s` to the link line (see the mkfile);
+standard Plan9 behaviour (every other Plan9 compiler needs `-s` for a
+truly stripped `-H 1` binary too), not a bug in this port specifically.
+
+STATUS
+------
+Confirmed working on real hardware: LED blinks. Superseded in scope
+(not correctness) by the riscv64 folders once objtype=riscv64 became
+usable - see rv_baremetal-boot-plan9-riscv64 onward for real function
+calls, UART, and watchdog.
+
+BUILD
+-----
+mk (produces main.out and main.bin; main.bin is the flashable headerless
+output, built with -s to strip Plan9 symbols). objtype=riscv is set at
+the top of the mkfile.

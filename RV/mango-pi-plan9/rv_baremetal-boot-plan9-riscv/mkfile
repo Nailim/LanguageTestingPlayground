@@ -1,0 +1,29 @@
+#objtype=riscv64
+objtype=riscv
+
+</$objtype/mkfile
+
+all: main.out main.bin
+#all: main.out main.bin main.elf
+	# Format place holder
+
+# ELF is questionable
+main.elf: start.$O main.$O
+	$LD $DFLAGS -H 5 -T 0x41000000 -E _start -o main.elf start.$O main.$O
+
+# must include -s to strip all plan9 symbols for a true binary output
+main.bin: start.$O main.$O
+	$LD $DFLAGS -s -H 1 -T 0x41000000 -E _start -o main.bin start.$O main.$O
+
+main.out: start.$O main.$O
+	$LD $DFLAGS -T 0x41000000 -E _start -o main.out start.$O main.$O
+
+main.$O: main.c
+	$CC $CFLAGS main.c
+
+start.$O: start.s
+	$AS  start.s
+
+
+clean:V:
+	rm -f main.elf main.bin main.out main.$O start.$O
