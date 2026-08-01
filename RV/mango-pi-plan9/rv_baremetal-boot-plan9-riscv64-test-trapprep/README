@@ -1,0 +1,89 @@
+test-trapprep: CSR writes, bulk register save/restore, and non-commutative
+3-operand arithmetic on objtype=riscv64 - the three things flagged as
+needed-but-untested before Phase 2 (9/sun20i trap handling) starts
+leaning on them.
+
+WHAT IS TESTED
+--------------
+16 checks, split into three groups:
+
+  - CSR writes (5 checks, csrtest.s): only CSR reads (MOVW CSR(n), Rd)
+    were previously proven, by rv_baremetal-boot-plan9-riscv64-diag.
+    CSR writes (MOVW Rd, CSR(n)) are a different grammar rule, never
+    exercised before now - and Phase 2's first real act is writing
+    stvec to install the trap vector, where a silently wrong write
+    means traps never reach the handler at all, with nothing to catch
+    it. Three roundtrip patterns against sscratch (a CSR with zero
+    side effects by spec design - safe to hammer repeatedly): 0,
+    all-ones (-1, catches width truncation), and an arbitrary small
+    positive value (catches a "reads back the complement" or "always
+    echoes the last write regardless of which CSR" class of bug the
+    0/-1 pair alone wouldn't distinguish). Plus one lighter roundtrip
+    each for stvec and sepc, the two CSRs Phase 2 will actually touch.
+
+  - Register save/restore mechanics (2 checks, regtest.s): fills R5-R31
+    (27 GPRs - R0 is hardwired zero, R1/R2/R3 are the link register/
+    stack pointer/SB and are needed for this very function to keep
+    running, so none of the four are free to hold a test pattern) with
+    distinct, sign-extended values, saves all 32 registers into a
+    buffer, clobbers R5-R31 with different values, restores from the
+    buffer, and saves again into a second buffer. First check: did the
+    initial save match the assigned pattern. Second: does the
+    restore+resave match the first save exactly (proving the restore
+    direction works, not just the store direction). This is a dry run
+    of the exact shape 9/sun20i/trap.c's Ureg save/restore will need -
+    getting one register's offset wrong among 31 nearly-identical lines
+    is exactly the kind of mistake that's easy to write and silent to
+    run.
+
+  - Non-commutative 3-operand arithmetic (9 checks, arithtest.s): SUB/
+    SLT/SLTU/SLL/SRL/SRA all share optab.c's case-0/OP_R path and the
+    identical "oprrr rreg ',' sreg ',' rreg" grammar rule that bug #4
+    (PLAN9_RISCV64_LESSONS_LEARNED.md) fixed for the branch family. The
+    fix covers these too - confirmed by reading the grammar, not by
+    testing, until this suite. Commutative ops (ADD/AND/OR/XOR/MUL)
+    would have hidden the same bug the way BEQ/BNE did; these are the
+    non-commutative ones where a lingering operand-order mistake would
+    actually be visible. sltu_sign specifically reuses the signed/
+    unsigned-distinguishing trick from test-branches (1 vs -1) to catch
+    a signed/unsigned mix-up, not just a plain operand swap.
+
+WHY THIS CONSTRUCT
+------------------
+Direct follow-up to bug #4: once the branch-family swap bug was found,
+fixed, and confirmed via rv_baremetal-boot-plan9-riscv64-test-branches,
+the natural next question was "what else does Phase 2 need that's never
+actually been exercised." CSR writes, bulk sequential register stores,
+and non-commutative arithmetic sharing the just-fixed grammar rule were
+the three concrete answers - all three are either directly on Phase 2's
+critical path (stvec, the Ureg save/restore itself) or share code with
+something that was JUST proven buggy until recently (the arithmetic
+family). Worth confirming all three in isolation before trap.c is
+written on top of them, same reasoning as test-branches itself.
+
+One finding from preparing this suite, not tested by it: reading the
+real riscv64/include/ureg.h (already existing upstream, not something
+this project wrote) showed R6/R7 are the established convention for
+up/m respectively - the same register-pinning approach every other
+9front port uses. 9/sun20i's Phase 1 dat.h/l.s used a plain global
+Mach* m instead, reasoning that single-core doesn't need the
+performance shortcut. That reasoning still holds, but it's a real
+deviation from this port's own documented convention, worth revisiting
+before Phase 2's trap/context-switch code gets written assuming R6/R7
+hold up/m the way the rest of this architecture's tooling does.
+
+HOW TO READ THE RESULT
+-----------------------
+Watch UART0. Each of the 16 lines should read PASS - the two register
+checks report which register first mismatched on FAIL, since "some
+register somewhere is wrong" isn't actionable on its own. A final line
+reads either "ALL TESTS PASSED" or "SOME TESTS FAILED (see above)". LED
+heartbeat (PIO bank D, pin 18, same code as test-switch/test-branches):
+solid = all passed, fast blink = at least one FAIL. No watchdog feeding,
+same one-shot-diagnostic choice as test-branches.
+
+BUILD
+-----
+mk (produces main.out and main.bin, same convention as every other
+rv_baremetal-boot-plan9-riscv64-* folder - main.bin is the flashable
+headerless output, built with -s to strip Plan9 symbols).

@@ -1,0 +1,77 @@
+test-branches: hand-written branch/loop instruction correctness on objtype=riscv64
+
+WHAT IS TESTED
+--------------
+26 checks, all in branchtest.s (hand-written ja assembly, not C compiled
+by ic) and called from main.c:
+
+  - BEQ/BNE/BLT/BGE/BLTU/BGEU, 3-operand register-vs-register form
+    (16 checks): for each of the four signed/unsigned-sensitive
+    mnemonics (BLT/BGE/BLTU/BGEU), a "basic" case (3 vs 7, both
+    positive) plus a "sign" case (-1 vs 1, and its operand-reversed
+    twin) specifically chosen so a wrong operand order OR a signed/
+    unsigned mix-up would flip the answer, not just happen to still
+    look right. BEQ/BNE get a true and a false case each (signedness
+    doesn't apply to equality).
+  - BEQ/BNE/BLT/BGE, 2-operand-vs-implicit-zero form (8 checks): a
+    different assembler grammar rule than the 3-operand form
+    (cmd/ia/a.y: "LBEQ rreg ',' rel" vs "LBEQ rreg ',' sreg ',' rel"),
+    tested separately since there's no reason to assume it shares
+    whatever operand-order behavior the 3-operand form has.
+  - Two loop-structure checks: loop_topguard_count reproduces the exact
+    shape the original buggy 9/sun20i/l.s used (a leading guard branch,
+    a body, and an unconditional JMP back to the guard) with small,
+    hand-verifiable bounds. loop_bottomtest_count is the pattern l.s
+    was fixed to use instead (a single trailing conditional branch, no
+    leading guard), with different bounds than l.s happened to use, to
+    confirm the fix generalizes rather than having only been checked
+    once by luck.
+
+WHY THIS CONSTRUCT
+------------------
+Every earlier test/driver in this project (the original 6-test/86-check
+compiler suite, every rv_baremetal-boot-plan9-riscv64-* driver, the D1
+diag probe) used either straight-line code or C-level if/switch/while
+compiled BY ic - never a hand-written ja branch instruction. That gap
+went unnoticed until 9/sun20i/l.s's BSS-zeroing loop: "BGE R9, R11,
+target" assembled with its two register operands in the opposite order
+from what was written, and a trailing unconditional JMP back to a label
+preceded by that same conditional branch got rewritten into a different
+conditional branch entirely (confirmed by disassembling the actual
+built kernel - see PLAN9_D1_PORT_ROADMAP.md's Phase 1 section for the
+full diagnosis). The fix that unblocked Phase 1 (a single trailing
+BLT, no leading guard) was confirmed working exactly once, on exactly
+one set of bounds, live inside real kernel bring-up. This test exists
+to characterize the actual, general operand-order and loop-idiom rules
+in isolation, since Phase 2 (trap dispatch) is about to depend on
+hand-written conditional branches far more heavily than anything so
+far - decoding scause into syscall/page-fault/timer/external-interrupt
+is fundamentally a chain of compares-and-branches, and it deserves a
+solid, separately-verified foundation rather than one lucky data point.
+
+HOW TO READ THE RESULT
+-----------------------
+Watch UART0 (same console as every other rv_baremetal-boot-plan9-riscv64-*
+example). Each of the 26 lines should read PASS - including
+"loop_topguard_count (known-bad shape)", whose expected value (0, not
+the naively-expected 5) matches what we now BELIEVE happens based on
+the l.s diagnosis; a PASS there confirms that understanding, a FAIL
+means something is inconsistent and needs more digging, not that the
+test itself is wrong. A final line reads either "ALL TESTS PASSED" or
+"SOME TESTS FAILED (see above)". The onboard LED (PIO bank D, pin 18 -
+same GPIO code as rv_baremetal-boot-plan9-riscv64-test-switch, reused
+unchanged, not reinvented) is a no-terminal fallback: solid on once the
+test finishes means all 26 passed; a fast blink means at least one FAIL
+was printed.
+
+No watchdog feeding in this one, deliberately - same choice
+rv_baremetal-boot-plan9-riscv64-test-switch already made: this is a
+one-shot diagnostic, not something that needs to stay up. The UART
+output has already been printed and read well before any watchdog
+timeout would matter.
+
+BUILD
+-----
+mk (produces main.out and main.bin, same convention as the other
+rv_baremetal-boot-plan9-riscv64-* folders - main.bin is the flashable
+headerless output, built with -s to strip Plan9 symbols).
