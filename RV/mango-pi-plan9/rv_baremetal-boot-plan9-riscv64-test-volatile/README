@@ -1,0 +1,69 @@
+test-volatile: does objtype=riscv64's `ic` honor `volatile` well enough
+to retire the PUT32/GET32 asm-helper MMIO pattern established back in
+Phase 0/1 of the D1 port, in favor of direct pointer dereferences like
+every other 9front port uses? Deferred from Phase 1 (see
+d1_port_test_volatile_pointers_later memory) until there was enough
+compiler trust built up to spend the cycles on it - now, right before
+Phase 3, seemed like the moment.
+
+WHAT IS TESTED
+--------------
+9 checks in three groups, all in volatile.c - the file under test, which
+uses ONLY `volatile`-qualified pointer dereferences, no PUT32/GET32 calls
+anywhere in it. main.c's own reporting path (uart_putc/uart_puts)
+deliberately stays on the proven PUT32/GET32 channel, so a broken
+volatile implementation still leaves a working way to report that it's
+broken.
+
+  - Dead-store elimination (1 check): a volatile store, in vol_store(),
+    that nothing in the same function reads back - if the compiler is
+    willing to treat a volatile write as eliminable dead code the way it
+    legally could for a plain local, the value read back from a
+    completely separate function (vol_load()) won't match.
+
+  - No caching/hoisting of a volatile read across a loop (1 check):
+    vol_poll() loops up to a million times, writes pollflag=1 at
+    iteration 37, and checks pollflag on every iteration - exactly the
+    shape of a real MMIO wait-loop (`while(!(*reg & BIT)) ;`). If the
+    compiler hoists the read of pollflag out of the loop (legal for a
+    non-volatile local, since nothing INSIDE the loop that the compiler
+    can see "should" change it from its own perspective without
+    volatile), the function either loops all million iterations (returns
+    -1) or never terminates. Returning exactly 37 proves the read is live
+    every iteration, not cached in a register from loop entry.
+
+  - Real hardware (2 checks): the on-board LED (PIO bank D, pin 18 - same
+    pin every other test in this project drives), configured and toggled
+    entirely through volatile pointers in vol_led_init/vol_led_set, read
+    back through a third volatile pointer in vol_led_read. This is the
+    actual end-to-end case PUT32/GET32 exists to cover today - proving
+    the synthetic RAM-based tests above generalize to real MMIO, not just
+    to ordinary memory.
+
+WHAT A PASS DOES NOT PROVE
+---------------------------
+`ic` may simply not be an aggressively optimizing compiler - if it never
+does dead-store elimination or load hoisting in the first place,
+regardless of `volatile`, these tests would pass even with the qualifier
+removed entirely. A pass here means "it's now safe to write MMIO code
+with plain pointer dereferences instead of PUT32/GET32," which is the
+question that actually matters for cleaning up 9/sun20i - it does not by
+itself mean "volatile's specific semantic effect was exercised and
+proven necessary." Worth knowing, not worth chasing further; the
+practical answer is what's needed here.
+
+HOW TO READ THE RESULT
+-----------------------
+Watch UART0. Each of the 9 lines should read PASS. A final line reads
+either "ALL TESTS PASSED" or "SOME TESTS FAILED (see above)". LED
+heartbeat (PIO bank D, pin 18): solid = all passed, fast blink = at least
+one FAIL - deliberately driven through vol_led_set itself rather than a
+separate PUT32-based helper, so a broken volatile GPIO path fails to
+blink at all, which is itself informative. No watchdog feeding, same
+one-shot-diagnostic choice as every other test-* suite in this project.
+
+BUILD
+-----
+mk (produces main.out and main.bin, same convention as every other
+rv_baremetal-boot-plan9-riscv64-* folder - main.bin is the flashable
+headerless output, built with -s to strip Plan9 symbols).
